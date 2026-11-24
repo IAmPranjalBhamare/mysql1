@@ -1,0 +1,1762 @@
+DBMS Practical Solutions – Batch M-13
+Solutions are arranged according to the problem-statement list in the supplied DBMS batchwise PDF.
+SQL scripts are written for MySQL 8.0. MongoDB scripts are written for mongosh.
+Assignment 1: PS3 – Courier Delivery Delay and Penalty Management
+CREATE DATABASE CourierDB;
+USE CourierDB;
+
+CREATE TABLE Customer(
+  CustomerID INT PRIMARY KEY, CustomerName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Courier(
+  CourierID INT PRIMARY KEY, CourierName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Shipment(
+  ShipmentID INT PRIMARY KEY, CustomerID INT, CourierID INT,
+  BookingDate DATE NOT NULL, ExpectedDate DATE NOT NULL,
+  FOREIGN KEY(CustomerID) REFERENCES Customer(CustomerID),
+  FOREIGN KEY(CourierID) REFERENCES Courier(CourierID)
+);
+CREATE TABLE Delivery(
+  DeliveryID INT PRIMARY KEY, ShipmentID INT UNIQUE,
+  ActualDate DATE NOT NULL, DelayDays INT DEFAULT 0, Penalty DECIMAL(8,2) DEFAULT 0,
+  FOREIGN KEY(ShipmentID) REFERENCES Shipment(ShipmentID)
+);
+
+INSERT INTO Customer VALUES(1,'Asha');
+INSERT INTO Courier VALUES(1,'Fast Courier');
+INSERT INTO Shipment VALUES(101,1,1,'2026-01-01','2026-01-05');
+INSERT INTO Delivery(DeliveryID,ShipmentID,ActualDate) VALUES(1,101,'2026-01-08');
+
+DELIMITER //
+CREATE PROCEDURE CalculateDelay(IN p_shipment INT, OUT p_delay INT)
+BEGIN
+  DECLARE expected_dt DATE;
+  DECLARE actual_dt DATE;
+  SELECT ExpectedDate INTO expected_dt FROM Shipment WHERE ShipmentID=p_shipment;
+  IF expected_dt IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Invalid shipment ID';
+  END IF;
+  SELECT ActualDate INTO actual_dt FROM Delivery WHERE ShipmentID=p_shipment;
+  IF actual_dt IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Delivery details missing';
+  END IF;
+  IF actual_dt < expected_dt THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Incorrect delivery date';
+  END IF;
+  SET p_delay=DATEDIFF(actual_dt,expected_dt);
+  UPDATE Delivery SET DelayDays=p_delay WHERE ShipmentID=p_shipment;
+END//
+
+
+DROP PROCEDURE IF EXISTS CalculatePenalties;
+
+DELIMITER //
+
+CREATE PROCEDURE CalculatePenalties(IN p_shipment INT)
+BEGIN
+    DECLARE d INT;
+
+    SELECT DelayDays INTO d
+    FROM Delivery
+    WHERE ShipmentID = p_shipment;
+
+    IF d IS NULL THEN
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Invalid shipment ID or delivery details missing';
+    END IF;
+
+    UPDATE Delivery
+    SET Penalty = d * 50
+    WHERE ShipmentID = p_shipment;
+END//
+
+DELIMITER ;
+
+CALL CalculateDelay(101,@days);
+CALL CalculatePenalty(101);
+SELECT * FROM Delivery;
+
+CALL CalculateDelay(999,@days); 
+
+
+INSERT INTO Shipment
+VALUES(102,1,1,'2026-01-02','2026-01-06');
+
+CALL CalculateDelay(102,@days);
+
+INSERT INTO Shipment
+VALUES(103,1,1,'2026-01-03','2026-01-10');
+
+INSERT INTO Delivery
+VALUES(2,103,'2026-01-08',0,0);
+
+CALL CalculateDelay(103,@days);
+
+CALL CalculateDelay(101,@days);
+
+SELECT @days;
+
+CALL CalculatePenalty(107);
+
+SELECT * FROM Delivery;
+
+Practiced correct
+
+CREATE TABLE CUSTOMER (
+	CUSTOMERID INT PRIMARY KEY,
+	CUSTOMERNAME VARCHAR(20) NOT NULL,
+	CUSTOMERMOBILENUMBER VARCHAR(20) NOT NULL UNIQUE
+);
+
+
+INSERT INTO CUSTOMER VALUES (1,'ANUSHKA','5948771547'),
+(2,'PRANJAL','4856754544'),
+(3,'VAISHNAVI','8615787914');
+
+CREATE TABLE COURIER (
+	COURIERID INT PRIMARY KEY,
+	COURIERNAME VARCHAR(20) NOT NULL UNIQUE
+);
+
+
+INSERT INTO COURIER VALUES (101,'SOCKS'),(102,'SWEATER'),(103,'SHOES');
+
+
+CREATE TABLE SHIPMENT(
+	SHIPMENTID INT PRIMARY KEY,
+	CUSTOMERID INT,
+	COURIERID INT,
+	BOOKINGDATE DATE NOT NULL,
+	EXPECTEDDELIVERYDATE DATE NOT NULL,
+	CHECK (BOOKINGDATE <= EXPECTEDDELIVERYDATE),
+	FOREIGN KEY (CUSTOMERID) REFERENCES CUSTOMER(CUSTOMERID),
+	FOREIGN KEY (COURIERID) REFERENCES COURIER(COURIERID)
+);
+
+
+INSERT INTO SHIPMENT VALUES (201,1,101,'2026-10-30','2026-11-07'),(202,2,102,'2026-11-15','2026-11-22');
+
+INSERT INTO SHIPMENT VALUES
+(203, 3, 103, '2026-11-15', '2026-11-22'),
+(204, 1, 101, '2026-11-18', '2026-11-25');
+
+CREATE TABLE DELIVERY (
+	DELIVERYID INT PRIMARY KEY,
+	SHIPMENTID INT,
+	ACTUALDELIVERYDATE DATE ,
+	DELAYDAYS INT DEFAULT 0,
+	PENALTYAMOUNT INT DEFAULT 0,
+	DELIVERYSTATUS VARCHAR(20),
+	CHECK (DELIVERYSTATUS IN ('CONFIRMED','PENDING')),
+	FOREIGN KEY (SHIPMENTID) REFERENCES SHIPMENT(SHIPMENTID)
+);
+
+INSERT INTO DELIVERY
+(DELIVERYID, SHIPMENTID, ACTUALDELIVERYDATE, DELIVERYSTATUS)
+VALUES
+(301, 201, '2026-11-10', 'CONFIRMED'),
+(302, 202, '2026-11-20', 'CONFIRMED'),
+(303, 203, '2026-11-25', 'CONFIRMED'),
+(304, 204, NULL, 'PENDING');
+
+
+DELIMITER //
+CREATE PROCEDURE CALCULATEDELAY(IN P_SHIPMENTID INT)
+BEGIN
+	DECLARE V_EXPDATE DATE;
+	DECLARE V_ACTUALDATE DATE;
+	DECLARE V_DELAY INT ;
+	DECLARE V_COUNT INT DEFAULT 0;
+	
+	DECLARE EXIT HANDLER FOR SQLEXCEPTION
+	BEGIN 
+		RESIGNAL;
+	END;
+
+	SELECT COUNT(*) INTO V_COUNT 
+	FROM SHIPMENT 
+	WHERE SHIPMENTID = P_SHIPMENTID;
+
+	IF V_COUNT = 0 THEN
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT ='SHIPMENT ID NOT FOUND';	
+	END IF;
+
+	SELECT COUNT(*) INTO V_COUNT 
+	FROM DELIVERY 
+	WHERE SHIPMENTID = P_SHIPMENTID;
+
+	IF V_COUNT = 0 THEN 
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT='DELIVERY DETAILS MISSING';
+	END IF;
+
+	SELECT EXPECTEDDELIVERYDATE INTO V_EXPDATE
+	FROM SHIPMENT 
+	WHERE SHIPMENTID=P_SHIPMENTID;
+
+	SELECT ACTUALDELIVERYDATE INTO v_ACTUALDATE
+	FROM DELIVERY 
+	WHERE SHIPMENTID=P_SHIPMENTID;
+
+	IF v_ACTUALDATE IS NULL THEN 
+		SIGNAL SQLSTATE '45000'
+		SET MESSAGE_TEXT='DELIVERY DATE NOT FOUND';
+	END IF;
+
+	SET V_DELAY = GREATEST(0,DATEDIFF(v_ACTUALDATE,v_EXPDATE));
+
+	UPDATE DELIVERY
+	SET DELAYDAYS = V_DELAY
+	WHERE SHIPMENTID = P_SHIPMENTID;
+
+END //
+
+DELIMITER ;
+
+DELIMITER // 
+
+CREATE PROCEDURE CALCULATEPENALTY ( IN P_SHIPMENTID INT)
+BEGIN 
+
+	DECLARE V_PENALTY INT DEFAULT 0;
+	DECLARE V_DELAY INT;
+	DECLARE I INT DEFAULT 1;
+	
+
+	CALL CALCULATEDELAY(P_SHIPMENTID);
+
+	SELECT DELAYDAYS INTO V_DELAY
+	FROM DELIVERY 
+	WHERE SHIPMENTID = P_SHIPMENTID;
+
+	IF V_DELAY > 0 THEN 
+		WHILE I <= V_DELAY DO
+			SET V_PENALTY = V_PENALTY + 10;
+			SET I = I+ 1;
+		END WHILE ;
+	END IF ;
+
+
+	UPDATE DELIVERY 
+	SET PENALTYAMOUNT = V_PENALTY
+	WHERE SHIPMENTID= P_SHIPMENTID;
+
+END //
+
+DELIMITER ;
+
+
+INSERT INTO SHIPMENT VALUES (205,1,103,'2026-11-2','2026-11-18');
+
+Assignment 2: PS4 – Electric Vehicle Battery Health Projection
+CREATE DATABASE EVDB;
+USE EVDB;
+
+CREATE TABLE Vehicle(
+  VehicleID INT PRIMARY KEY, Model VARCHAR(40) NOT NULL
+);
+CREATE TABLE Battery(
+  BatteryID INT PRIMARY KEY,
+  VehicleID INT UNIQUE,
+  CapacityKWh DECIMAL(8,2) NOT NULL,
+  FOREIGN KEY(VehicleID) REFERENCES Vehicle(VehicleID)
+);
+CREATE TABLE Battery_Test(
+  TestID INT PRIMARY KEY,
+  BatteryID INT,
+  CurrentCapacity DECIMAL(8,2) NOT NULL,
+  SOH DECIMAL(5,2), BatteryStatus VARCHAR(20),
+  TestDate DATE NOT NULL,
+  FOREIGN KEY(BatteryID) REFERENCES Battery(BatteryID),
+  CHECK(CurrentCapacity >= 0)
+);
+
+INSERT INTO Vehicle VALUES(1,'EV Model A');
+INSERT INTO Battery VALUES(1,1,80);
+INSERT INTO Battery_Test(TestID,BatteryID,CurrentCapacity,TestDate)
+VALUES(1,1,72,'2026-01-01');
+
+DELIMITER //
+CREATE PROCEDURE ProjectBatteryHealth(IN p_vehicle INT)
+BEGIN
+  DECLARE done INT DEFAULT 0;
+  DECLARE bid INT;
+  DECLARE cap DECIMAL(8,2);
+  DECLARE current_cap DECIMAL(8,2);
+  DECLARE health DECIMAL(5,2);
+  DECLARE cur CURSOR FOR
+    SELECT b.BatteryID,b.CapacityKWh,t.CurrentCapacity
+    FROM Battery b JOIN Battery_Test t ON b.BatteryID=t.BatteryID
+    WHERE b.VehicleID=p_vehicle;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done=1;
+
+  IF NOT EXISTS(SELECT 1 FROM Vehicle WHERE VehicleID=p_vehicle) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Invalid vehicle ID';
+  END IF;
+  OPEN cur;
+  health_loop: LOOP
+    FETCH cur INTO bid,cap,current_cap;
+    IF done=1 THEN LEAVE health_loop; END IF;
+    IF cap IS NULL OR current_cap IS NULL OR cap<=0 OR current_cap<0 THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Invalid or missing battery reading';
+    END IF;
+    SET health=(current_cap/cap)*100;
+    UPDATE Battery_Test SET SOH=health,
+      BatteryStatus=IF(health>=80,'Healthy',IF(health>=60,'Moderate','Poor'))
+      WHERE BatteryID=bid AND CurrentCapacity=current_cap;
+  END LOOP;
+  CLOSE cur;
+END//
+DELIMITER ;
+CALL ProjectBatteryHealth(1);
+SELECT * FROM Battery_Test;
+
+
+
+USE EVDB;
+
+-- 1. Check Vehicle Table
+SELECT * FROM Vehicle;
+-- Expected Output:
+-- VehicleID | Model
+-- 1         | EV Model A
+-- Reason: Displays all registered vehicles.
+
+-- 2. Check Battery Table
+SELECT * FROM Battery;
+-- Expected Output:
+-- BatteryID | VehicleID | CapacityKWh
+-- 1         | 1         | 80.00
+-- Reason: Displays battery details of vehicles.
+
+-- 3. Check Battery_Test Table
+SELECT * FROM Battery_Test;
+-- Expected Output:
+-- TestID | BatteryID | CurrentCapacity | SOH  | BatteryStatus | TestDate
+-- 1      | 1         | 72.00           | 90.00| Healthy       | 2026-01-01
+-- Reason: Displays battery testing details after procedure execution.
+
+-- 4. Test Stored Procedure with Valid Vehicle
+CALL ProjectBatteryHealth(1);
+SELECT * FROM Battery_Test;
+-- Expected Output:
+-- SOH = 90.00
+-- BatteryStatus = Healthy
+-- Reason: Battery health = (72 / 80) * 100 = 90%.
+
+-- 5. Test Invalid Vehicle ID
+CALL ProjectBatteryHealth(999);
+-- Expected Output:
+-- ERROR 1644: Invalid vehicle ID
+-- Reason: VehicleID 999 does not exist.
+
+-- 6. Test UNIQUE Constraint
+INSERT INTO Battery VALUES(2,1,60);
+-- Expected Output:
+-- ERROR 1062: Duplicate entry '1'.
+-- Reason: VehicleID in Battery is UNIQUE.
+-- One vehicle cannot have multiple battery records.
+
+-- 7. Test NOT NULL Constraint on Model
+INSERT INTO Vehicle VALUES(2,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'Model' cannot be null.
+-- Reason: Model is declared NOT NULL.
+
+-- 8. Test NOT NULL Constraint on Capacity
+INSERT INTO Battery VALUES(2,1,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'CapacityKWh' cannot be null.
+-- Reason: CapacityKWh is declared NOT NULL.
+
+-- 9. Test FOREIGN KEY Constraint
+INSERT INTO Battery VALUES(2,999,60);
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: VehicleID 999 does not exist in Vehicle.
+
+-- 10. Test CHECK Constraint
+INSERT INTO Battery_Test
+VALUES(2,1,-5, NULL, NULL, '2026-01-02');
+-- Expected Output:
+-- ERROR 3819: Check constraint is violated.
+-- Reason: CurrentCapacity cannot be negative.
+
+-- 11. Test Invalid Battery Capacity in Procedure
+UPDATE Battery SET CapacityKWh=0 WHERE BatteryID=1;
+
+CALL ProjectBatteryHealth(1);
+-- Expected Output:
+-- ERROR 1644: Invalid or missing battery reading
+-- Reason: Battery capacity cannot be zero for health calculation.
+
+-- Restore original battery capacity
+UPDATE Battery SET CapacityKWh=80 WHERE BatteryID=1;
+-- Expected Output: Query OK.
+-- Reason: Restores the original capacity.
+
+-- 12. Run Procedure Again
+CALL ProjectBatteryHealth(1);
+SELECT * FROM Battery_Test;
+-- Expected Output:
+-- SOH = 90.00
+-- BatteryStatus = Healthy
+-- Reason: Procedure calculates battery health using restored capacity.
+
+-- 13. Check Final Vehicle Table
+SELECT * FROM Vehicle;
+-- Expected Output:
+-- 1 | EV Model A
+-- Reason: Invalid insert was rejected.
+
+-- 14. Check Final Battery Table
+SELECT * FROM Battery;
+-- Expected Output:
+-- 1 | 1 | 80.00
+-- Reason: Invalid battery inserts were rejected and original capacity restored.
+
+-- 15. Check Final Battery Test Table
+SELECT * FROM Battery_Test;
+-- Expected Output:
+-- 1 | 1 | 72.00 | 90.00 | Healthy | 2026-01-01
+-- Reason: Final battery health is 90%, so status is Healthy.
+Assignment 3: PS7 – Cloud Storage Subscription Upgrade and Proration
+CREATE DATABASE CloudDB;
+USE CloudDB;
+
+CREATE TABLE User(
+  UserID INT PRIMARY KEY, UserName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Subscription_Plan(
+  PlanID INT PRIMARY KEY, PlanName VARCHAR(30) NOT NULL,
+  StorageGB INT NOT NULL, MonthlyPrice DECIMAL(8,2) NOT NULL
+);
+CREATE TABLE User_Subscription(
+  SubscriptionID INT PRIMARY KEY, UserID INT, PlanID INT,
+  StartDate DATE NOT NULL, EndDate DATE NOT NULL,
+  FOREIGN KEY(UserID) REFERENCES User(UserID),
+  FOREIGN KEY(PlanID) REFERENCES Subscription_Plan(PlanID)
+);
+CREATE TABLE Storage_Usage(
+  UsageID INT PRIMARY KEY, UserID INT, UsedGB DECIMAL(8,2),
+  UsageDate DATE, FOREIGN KEY(UserID) REFERENCES User(UserID)
+);
+
+INSERT INTO User VALUES(1,'Asha');
+INSERT INTO Subscription_Plan VALUES(1,'Basic',100,100),(2,'Pro',500,500);
+INSERT INTO User_Subscription VALUES(1,1,1,'2026-01-01','2026-01-31');
+INSERT INTO Storage_Usage VALUES(1,1,50,'2026-01-15');
+
+DELIMITER //
+CREATE FUNCTION ProratedCharge(p_old INT,p_new INT,p_days INT)
+RETURNS DECIMAL(10,2) DETERMINISTIC READS SQL DATA
+BEGIN
+  DECLARE old_price DECIMAL(8,2);
+  DECLARE new_price DECIMAL(8,2);
+  SELECT MonthlyPrice INTO old_price FROM Subscription_Plan WHERE PlanID=p_old;
+  SELECT MonthlyPrice INTO new_price FROM Subscription_Plan WHERE PlanID=p_new;
+  RETURN ((new_price-old_price)/30)*p_days;
+END//
+
+CREATE PROCEDURE UpgradePlan(IN p_user INT, IN p_plan INT, OUT p_charge DECIMAL(10,2))
+BEGIN
+  DECLARE old_plan INT;
+  DECLARE days_left INT;
+  SELECT PlanID,DATEDIFF(EndDate,CURDATE()) INTO old_plan,days_left
+  FROM User_Subscription WHERE UserID=p_user;
+  IF old_plan IS NULL OR NOT EXISTS(SELECT 1 FROM Subscription_Plan WHERE PlanID=p_plan) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Invalid user subscription or plan';
+  END IF;
+  SET p_charge=ProratedCharge(old_plan,p_plan,GREATEST(days_left,0));
+  UPDATE User_Subscription SET PlanID=p_plan WHERE UserID=p_user;
+END//
+DELIMITER ;
+
+CALL UpgradePlan(1,2,@charge);
+SELECT @charge;
+SELECT * FROM User_Subscription;
+
+
+-- 1. Invalid User Subscription
+CALL UpgradePlan(999,2,@charge);
+
+-- 2. Invalid Plan ID
+CALL UpgradePlan(1,999,@charge);
+
+-- 3. Successful Plan Upgrade
+CALL UpgradePlan(1,2,@charge);
+SELECT @charge;
+
+-- 4. Extend Subscription (INOUT)
+SET @days = 10;
+CALL ExtendSubscription(@days);
+SELECT @days;
+
+-- 5. Check Updated Subscription
+SELECT * FROM User_Subscription;
+
+-- 6. Test ProratedCharge Function
+SELECT ProratedCharge(1,2,10);
+
+-- 7. Check All Subscription Records
+SELECT * FROM User_Subscription;
+
+-- 8. Check Storage Usage
+SELECT * FROM Storage_Usage;
+
+
+
+Assignment 4: PS8 – Bulk Vendor Invoice Reconciliation
+
+CREATE DATABASE VendorDB;
+USE VendorDB;
+
+CREATE TABLE Vendor(
+  VendorID INT PRIMARY KEY, VendorName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Invoice(
+  InvoiceID INT PRIMARY KEY, VendorID INT, InvoiceAmount DECIMAL(10,2) NOT NULL,
+  PaidAmount DECIMAL(10,2) DEFAULT 0, PaymentStatus VARCHAR(20) DEFAULT 'Pending',
+  FOREIGN KEY(VendorID) REFERENCES Vendor(VendorID)
+);
+CREATE TABLE Payment(
+  PaymentID INT PRIMARY KEY, InvoiceID INT, Amount DECIMAL(10,2) NOT NULL,
+  PaymentDate DATE, FOREIGN KEY(InvoiceID) REFERENCES Invoice(InvoiceID)
+);
+
+INSERT INTO Vendor VALUES(1,'ABC Supplies');
+INSERT INTO Invoice VALUES(101,1,5000,0,'Pending'),(102,1,3000,0,'Pending');
+INSERT INTO Payment VALUES(1,101,2000,'2026-01-01'),(2,101,3000,'2026-01-05'),(3,102,1000,'2026-01-06');
+
+DELIMITER //
+CREATE FUNCTION OutstandingAmount(p_invoice INT)
+RETURNS DECIMAL(10,2) DETERMINISTIC READS SQL DATA
+BEGIN
+  DECLARE total_amt DECIMAL(10,2);
+  DECLARE paid_amt DECIMAL(10,2);
+  SELECT InvoiceAmount INTO total_amt FROM Invoice WHERE InvoiceID=p_invoice;
+  SELECT COALESCE(SUM(Amount),0) INTO paid_amt FROM Payment WHERE InvoiceID=p_invoice;
+  RETURN total_amt-paid_amt;
+END//
+
+CREATE PROCEDURE ReconcileInvoices()
+BEGIN
+  START TRANSACTION;
+  UPDATE Invoice i
+  LEFT JOIN (SELECT InvoiceID,SUM(Amount) total FROM Payment GROUP BY InvoiceID) p
+  ON i.InvoiceID=p.InvoiceID
+  SET i.PaidAmount=COALESCE(p.total,0),
+      i.PaymentStatus=IF(COALESCE(p.total,0)>=i.InvoiceAmount,'Paid','Pending');
+  COMMIT;
+END//
+DELIMITER ;
+
+CALL ReconcileInvoices();
+SELECT InvoiceID,InvoiceAmount,PaidAmount,PaymentStatus FROM Invoice;
+SELECT OutstandingAmount(101) AS Outstanding;
+
+
+USE VendorDB;
+
+-- 1. Check Vendor Table
+SELECT * FROM Vendor;
+-- Expected Output:
+-- VendorID | VendorName
+-- 1        | ABC Supplies
+-- Reason: Displays all registered vendors.
+
+-- 2. Check Invoice Table
+SELECT * FROM Invoice;
+-- Expected Output:
+-- InvoiceID | VendorID | InvoiceAmount | PaidAmount | PaymentStatus
+-- 101       | 1        | 5000.00       | 5000.00    | Paid
+-- 102       | 1        | 3000.00       | 1000.00    | Pending
+-- Reason: Displays invoice details after reconciliation.
+
+-- 3. Check Payment Table
+SELECT * FROM Payment;
+-- Expected Output:
+-- PaymentID | InvoiceID | Amount  | PaymentDate
+-- 1         | 101       | 2000.00 | 2026-01-01
+-- 2         | 101       | 3000.00 | 2026-01-05
+-- 3         | 102       | 1000.00 | 2026-01-06
+-- Reason: Displays all payments made against invoices.
+
+-- 4. Test OutstandingAmount Function for Invoice 101
+SELECT OutstandingAmount(101) AS Outstanding;
+-- Expected Output:
+-- Outstanding
+-- 0.00
+-- Reason: Invoice amount 5000 - total payment 5000 = 0.
+
+-- 5. Test OutstandingAmount Function for Invoice 102
+SELECT OutstandingAmount(102) AS Outstanding;
+-- Expected Output:
+-- Outstanding
+-- 2000.00
+-- Reason: Invoice amount 3000 - payment 1000 = 2000.
+
+-- 6. Test ReconcileInvoices Procedure
+CALL ReconcileInvoices();
+SELECT InvoiceID,InvoiceAmount,PaidAmount,PaymentStatus FROM Invoice;
+-- Expected Output:
+-- 101 | 5000.00 | 5000.00 | Paid
+-- 102 | 3000.00 | 1000.00 | Pending
+-- Reason: Procedure calculates total payments and updates invoice status.
+
+-- 7. Test Invalid Vendor Reference
+INSERT INTO Invoice
+VALUES(103,999,2000,0,'Pending');
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: VendorID 999 does not exist in Vendor.
+
+-- 8. Test Invalid Invoice Reference
+INSERT INTO Payment
+VALUES(4,999,500,'2026-01-10');
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: InvoiceID 999 does not exist in Invoice.
+
+-- 9. Test NOT NULL Constraint on VendorName
+INSERT INTO Vendor VALUES(2,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'VendorName' cannot be null.
+-- Reason: VendorName is declared NOT NULL.
+
+-- 10. Test NOT NULL Constraint on InvoiceAmount
+INSERT INTO Invoice(InvoiceID,VendorID,InvoiceAmount)
+VALUES(103,1,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'InvoiceAmount' cannot be null.
+-- Reason: InvoiceAmount is declared NOT NULL.
+
+-- 11. Test NOT NULL Constraint on Payment Amount
+INSERT INTO Payment(PaymentID,InvoiceID,Amount)
+VALUES(4,101,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'Amount' cannot be null.
+-- Reason: Amount is declared NOT NULL.
+
+-- 12. Test Default Values in Invoice
+INSERT INTO Invoice(InvoiceID,VendorID,InvoiceAmount)
+VALUES(103,1,1500);
+-- Expected Output:
+-- 103 | 1 | 1500.00 | 0.00 | Pending
+-- Reason: PaidAmount defaults to 0 and PaymentStatus defaults to Pending.
+
+-- 13. Test Reconciliation After New Invoice
+CALL ReconcileInvoices();
+SELECT * FROM Invoice WHERE InvoiceID=103;
+-- Expected Output:
+-- 103 | 1 | 1500.00 | 0.00 | Pending
+-- Reason: No payment exists for invoice 103, so it remains Pending.
+
+-- 14. Test Payment for New Invoice
+INSERT INTO Payment VALUES(4,103,1500,'2026-01-12');
+
+CALL ReconcileInvoices();
+SELECT * FROM Invoice WHERE InvoiceID=103;
+-- Expected Output:
+-- 103 | 1 | 1500.00 | 1500.00 | Paid
+-- Reason: Full payment of 1500 changes status to Paid.
+
+-- 15. Check Final Outstanding Amount
+SELECT OutstandingAmount(103) AS Outstanding;
+-- Expected Output:
+-- 0.00
+-- Reason: Invoice 103 is fully paid.
+
+-- 16. Check Final Invoice Records
+SELECT InvoiceID,InvoiceAmount,PaidAmount,PaymentStatus FROM Invoice;
+-- Expected Output:
+-- 101 | 5000.00 | 5000.00 | Paid
+-- 102 | 3000.00 | 1000.00 | Pending
+-- 103 | 1500.00 | 1500.00 | Paid
+-- Reason: Displays the final reconciled invoice details.
+
+
+
+Assignment 5: PS11 – Conference Paper Submission and Review Tracking
+CREATE DATABASE PS11;
+USE PS11;
+
+CREATE DATABASE CONFERENCEDB;
+
+USE CONFERENCEDB;
+
+CREATE TABLE PAPER(
+    PAPERID INT PRIMARY KEY,
+    PAPERTITLE VARCHAR(100) NOT NULL,
+    AUTHORNAME VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE REVIEW_STAGE(
+    STAGEID INT PRIMARY KEY,
+    PAPERID INT,
+    REVIEWERNAME VARCHAR(50),
+    REVIEWSTATUS VARCHAR(20),
+    FOREIGN KEY(PAPERID) REFERENCES PAPER(PAPERID)
+);
+
+CREATE TABLE REVIEW_MASTER(
+    REVIEWID INT PRIMARY KEY AUTO_INCREMENT,
+    STAGEID INT UNIQUE,
+    PAPERID INT,
+    REVIEWERNAME VARCHAR(50),
+    REVIEWSTATUS VARCHAR(20),
+    FOREIGN KEY(PAPERID) REFERENCES PAPER(PAPERID),
+    CHECK(REVIEWSTATUS IN ('PENDING','ACCEPTED','REJECTED'))
+);
+
+CREATE TABLE REVIEW_AUDIT(
+    AUDITID INT PRIMARY KEY AUTO_INCREMENT,
+    REVIEWID INT,
+    ACTIONNAME VARCHAR(20),
+    ACTIONTIME TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO PAPER VALUES(1,'AI IN NETWORKS','ASHA');
+
+INSERT INTO REVIEW_STAGE VALUES(1,1,'DR RAO','ACCEPTED');
+
+DELIMITER //
+
+CREATE TRIGGER REVIEWINSERTAUDIT AFTER INSERT ON REVIEW_MASTER
+FOR EACH ROW
+INSERT INTO REVIEW_AUDIT(REVIEWID,ACTIONNAME)
+VALUES(NEW.REVIEWID,'INSERT')//
+
+CREATE TRIGGER REVIEWUPDATEAUDIT AFTER UPDATE ON REVIEW_MASTER
+FOR EACH ROW
+INSERT INTO REVIEW_AUDIT(REVIEWID,ACTIONNAME)
+VALUES(NEW.REVIEWID,'UPDATE')//
+
+CREATE PROCEDURE PROCESSREVIEWS()
+BEGIN
+    DECLARE DONE INT DEFAULT 0;
+    DECLARE SID,PID INT;
+    DECLARE REVIEWER VARCHAR(50);
+    DECLARE ST VARCHAR(20);
+
+    DECLARE CUR CURSOR FOR
+    SELECT STAGEID,PAPERID,REVIEWERNAME,REVIEWSTATUS
+    FROM REVIEW_STAGE;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET DONE=1;
+
+    OPEN CUR;
+
+    REVIEW_LOOP: LOOP
+        FETCH CUR INTO SID,PID,REVIEWER,ST;
+
+        IF DONE=1 THEN
+            LEAVE REVIEW_LOOP;
+        END IF;
+
+        IF ST IN ('PENDING','ACCEPTED','REJECTED')
+           AND NOT EXISTS(
+               SELECT 1 FROM REVIEW_MASTER WHERE STAGEID=SID
+           ) THEN
+            INSERT INTO REVIEW_MASTER(STAGEID,PAPERID,REVIEWERNAME,REVIEWSTATUS)
+            VALUES(SID,PID,REVIEWER,ST);
+        END IF;
+    END LOOP;
+
+    CLOSE CUR;
+END//
+
+DELIMITER ;
+
+CALL PROCESSREVIEWS();
+
+SELECT P.PAPERTITLE,R.REVIEWERNAME,R.REVIEWSTATUS
+FROM PAPER P
+LEFT JOIN REVIEW_MASTER R ON P.PAPERID=R.PAPERID;
+
+
+
+Assignment 6: PS12 – Laboratory Equipment Calibration
+
+CREATE DATABASE LabDB;
+USE LabDB;
+
+CREATE TABLE Equipment(
+  EquipmentID INT PRIMARY KEY, EquipmentName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Calibration_Stage(
+  StageID INT PRIMARY KEY, EquipmentID INT, CalibrationDate DATE,
+  NextDueDate DATE, Result VARCHAR(30),
+  FOREIGN KEY(EquipmentID) REFERENCES Equipment(EquipmentID)
+);
+CREATE TABLE Calibration_Master(
+  CalibrationID INT PRIMARY KEY AUTO_INCREMENT, StageID INT UNIQUE,
+  EquipmentID INT, CalibrationDate DATE, NextDueDate DATE, Result VARCHAR(30),
+  FOREIGN KEY(EquipmentID) REFERENCES Equipment(EquipmentID)
+);
+CREATE TABLE Calibration_Audit(
+  AuditID INT PRIMARY KEY AUTO_INCREMENT, CalibrationID INT,
+  ActionName VARCHAR(20), ActionTime TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO Equipment VALUES(1,'Digital Balance');
+INSERT INTO Calibration_Stage VALUES(1,1,'2026-01-01','2026-07-01','Passed');
+
+DELIMITER //
+CREATE TRIGGER CalibrationInsertAudit AFTER INSERT ON Calibration_Master
+FOR EACH ROW INSERT INTO Calibration_Audit(CalibrationID,ActionName)
+VALUES(NEW.CalibrationID,'INSERT')//
+
+CREATE TRIGGER CalibrationUpdateAudit AFTER UPDATE ON Calibration_Master
+FOR EACH ROW INSERT INTO Calibration_Audit(CalibrationID,ActionName)
+VALUES(NEW.CalibrationID,'UPDATE')//
+
+CREATE PROCEDURE ProcessCalibration()
+BEGIN
+  DECLARE done INT DEFAULT 0;
+  DECLARE sid,eid INT;
+  DECLARE cdate,ddate DATE;
+  DECLARE res VARCHAR(30);
+  DECLARE cur CURSOR FOR
+    SELECT StageID,EquipmentID,CalibrationDate,NextDueDate,Result FROM Calibration_Stage;
+  DECLARE CONTINUE HANDLER FOR NOT FOUND SET done=1;
+  OPEN cur;
+  cal_loop: LOOP
+    FETCH cur INTO sid,eid,cdate,ddate,res;
+    IF done=1 THEN LEAVE cal_loop; END IF;
+    IF cdate IS NOT NULL AND ddate IS NOT NULL AND ddate>cdate
+       AND NOT EXISTS(SELECT 1 FROM Calibration_Master WHERE StageID=sid) THEN
+      INSERT INTO Calibration_Master(StageID,EquipmentID,CalibrationDate,NextDueDate,Result)
+      VALUES(sid,eid,cdate,ddate,res);
+    END IF;
+  END LOOP;
+  CLOSE cur;
+END//
+DELIMITER ;
+
+CALL ProcessCalibration();
+SELECT e.EquipmentName,c.CalibrationDate,c.NextDueDate,c.Result
+FROM Equipment e JOIN Calibration_Master c ON e.EquipmentID=c.EquipmentID;
+SELECT * FROM Calibration_Master WHERE NextDueDate<=CURDATE();
+SELECT * FROM Calibration_Audit;
+
+USE LabDB;
+
+-- 1. Check Equipment Table
+SELECT * FROM Equipment;
+-- Expected Output:
+-- EquipmentID | EquipmentName
+-- 1           | Digital Balance
+-- Reason: Displays all registered laboratory equipment.
+
+-- 2. Check Calibration Stage
+SELECT * FROM Calibration_Stage;
+-- Expected Output:
+-- StageID | EquipmentID | CalibrationDate | NextDueDate | Result
+-- 1       | 1           | 2026-01-01      | 2026-07-01  | Passed
+-- Reason: Displays calibration details before processing.
+
+-- 3. Check Calibration Master
+SELECT * FROM Calibration_Master;
+-- Expected Output:
+-- CalibrationID | StageID | EquipmentID | CalibrationDate | NextDueDate | Result
+-- 1              | 1       | 1           | 2026-01-01      | 2026-07-01  | Passed
+-- Reason: Displays valid calibration records transferred from Stage.
+
+-- 4. Check Equipment Calibration Details
+SELECT e.EquipmentName,c.CalibrationDate,c.NextDueDate,c.Result
+FROM Equipment e
+JOIN Calibration_Master c ON e.EquipmentID=c.EquipmentID;
+-- Expected Output:
+-- Digital Balance | 2026-01-01 | 2026-07-01 | Passed
+-- Reason: Displays equipment details with their calibration information.
+
+-- 5. Check Overdue Calibration
+SELECT * FROM Calibration_Master
+WHERE NextDueDate<=CURDATE();
+-- Expected Output:
+-- CalibrationID 1 | StageID 1 | NextDueDate 2026-07-01
+-- Reason: Since the current date is after 2026-07-01, this calibration is overdue.
+
+-- 6. Check Audit Table
+SELECT * FROM Calibration_Audit;
+-- Expected Output:
+-- AuditID | CalibrationID | ActionName
+-- 1       | 1             | INSERT
+-- Reason: Trigger automatically records the INSERT operation.
+
+-- 7. Test Cursor Procedure Again
+CALL ProcessCalibration();
+SELECT * FROM Calibration_Master;
+-- Expected Output:
+-- Only one record for StageID 1.
+-- Reason: Procedure skips StageID values that already exist in Calibration_Master.
+
+-- 8. Test UNIQUE Constraint
+INSERT INTO Calibration_Master
+(StageID,EquipmentID,CalibrationDate,NextDueDate,Result)
+VALUES(1,1,'2026-02-01','2026-08-01','Passed');
+-- Expected Output:
+-- ERROR 1062: Duplicate entry '1'.
+-- Reason: StageID is UNIQUE in Calibration_Master.
+
+-- 9. Test FOREIGN KEY Constraint
+INSERT INTO Calibration_Master
+(StageID,EquipmentID,CalibrationDate,NextDueDate,Result)
+VALUES(2,999,'2026-02-01','2026-08-01','Passed');
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: EquipmentID 999 does not exist in Equipment.
+
+-- 10. Test NOT NULL Constraint
+INSERT INTO Equipment VALUES(2,NULL);
+-- Expected Output:
+-- ERROR 1048: Column 'EquipmentName' cannot be null.
+-- Reason: EquipmentName is declared NOT NULL.
+
+-- 11. Test AFTER UPDATE Trigger
+UPDATE Calibration_Master
+SET Result='Needs Repair'
+WHERE StageID=1;
+-- Expected Output:
+-- Query OK, 1 row affected.
+-- Reason: Updates the calibration result and activates the UPDATE trigger.
+
+-- 12. Check Audit After Update
+SELECT * FROM Calibration_Audit;
+-- Expected Output:
+-- AuditID 1 | CalibrationID 1 | INSERT
+-- AuditID 2 | CalibrationID 1 | UPDATE
+-- Reason: Trigger records both INSERT and UPDATE operations.
+
+-- 13. Check Updated Calibration
+SELECT * FROM Calibration_Master;
+-- Expected Output:
+-- StageID 1 | EquipmentID 1 | Result Needs Repair
+-- Reason: Displays the updated calibration result.
+
+-- 14. Check Final Equipment Calibration Details
+SELECT e.EquipmentName,c.CalibrationDate,c.NextDueDate,c.Result
+FROM Equipment e
+JOIN Calibration_Master c ON e.EquipmentID=c.EquipmentID;
+-- Expected Output:
+-- Digital Balance | 2026-01-01 | 2026-07-01 | Needs Repair
+-- Reason: Displays the latest calibration details.
+
+-- 15. Check Final Audit Records
+SELECT * FROM Calibration_Audit;
+-- Expected Output:
+-- 1 | 1 | INSERT
+-- 2 | 1 | UPDATE
+-- Reason: Displays the complete audit history.
+
+Assignment 7: PS15 – Real Estate Property Listing Search Optimization
+
+CREATE DATABASE PS15;
+USE PS15;
+
+CREATE TABLE AGENT (
+	AGENTID INT PRIMARY KEY,
+	AGENTNAME VARCHAR(20) NOT NULL	
+);
+
+CREATE TABLE LOCATION(
+	LOCATIONID INT PRIMARY KEY,
+	CITY VARCHAR(20) NOT NULL,
+	AREA VARCHAR(20) NOT NULL,
+	UNIQUE(CITY,AREA) 
+);
+
+CREATE TABLE PROPERTY (
+	PROPERTYID INT PRIMARY KEY,
+	PROPERTYTYPE VARCHAR(20) NOT NULL,
+	AGENTID INT,
+	LOCATIONID INT,
+	PRICE DECIMAL(12,2),
+	FOREIGN KEY (AGENTID) REFERENCES AGENT(AGENTID),
+	FOREIGN KEY (LOCATIONID) REFERENCES LOCATION(LOCATIONID),
+	CHECK(PRICE > 0 )
+);
+
+
+-- 4. INSERT AGENT RECORDS
+INSERT INTO AGENT VALUES
+(1,'RAHUL'),
+(2,'PRIYA'),
+(3,'AMIT'),
+(4,'SNEHA'),
+(5,'ROHAN');
+
+-- 5. INSERT LOCATION RECORDS
+INSERT INTO LOCATION VALUES
+(1,'PUNE','BANER'),
+(2,'PUNE','HINJEWADI'),
+(3,'PUNE','WAKAD'),
+(4,'PUNE','KOTHRUD'),
+(5,'MUMBAI','ANDHERI'),
+(6,'MUMBAI','POWAI'),
+(7,'NASHIK','COLLEGE ROAD'),
+(8,'NAGPUR','DHARAMPETH');
+
+-- 6. INSERT PROPERTY RECORDS
+INSERT INTO PROPERTY VALUES
+(1,'FLAT',1,1,7500000),
+(2,'FLAT',2,2,6500000),
+(3,'FLAT',1,3,8500000),
+(4,'VILLA',3,1,15000000),
+(5,'PLOT',4,4,5500000),
+(6,'SHOP',5,2,4000000),
+(7,'FLAT',2,5,9500000),
+(8,'VILLA',3,6,18000000),
+(9,'FLAT',4,7,6000000),
+(10,'PLOT',5,8,4500000),
+(11,'FLAT',1,4,7200000),
+(12,'SHOP',2,5,8000000),
+(13,'VILLA',3,3,12500000),
+(14,'FLAT',4,1,9000000),
+(15,'PLOT',5,7,7000000);
+
+EXPLAIN SELECT * FROM PROPERTY 
+WHERE PROPERTYTYPE='FLAT';
+
+
+EXPLAIN SELECT * FROM LOCATION 
+WHERE CITY = 'MUMBAI';
+
+
+EXPLAIN SELECT * FROM PROPERTY
+WHERE PRICE BETWEEN 5000000 AND 9500000;
+
+
+EXPLAIN SELECT * FROM PROPERTY
+WHERE AGENTID = 1 AND PROPERTYTYPE = 'FLAT';
+
+CREATE INDEX INDEX_PROPERTY_TYPE ON PROPERTY(PROPERTYTYPE);
+
+CREATE INDEX INDEX_PRICE ON PROPERTY(PRICE);
+
+CREATE INDEX INDEX_PROPERTY_AGENT ON PROPERTY(AGENTID);
+
+CREATE INDEX INDEX_PROPERTY_LOCATION_TYPE_PRICE ON PROPERTY(LOCATIONID,PROPERTYTYPE,PRICE);
+
+EXPLAIN SELECT * FROM PROPERTY 
+WHERE PROPERTYTYPE='FLAT';
+
+
+EXPLAIN SELECT * FROM LOCATION 
+WHERE CITY = 'MUMBAI';
+
+
+EXPLAIN SELECT * FROM PROPERTY
+WHERE PRICE BETWEEN 5000000 AND 9500000;
+
+
+EXPLAIN SELECT * FROM PROPERTY
+WHERE AGENTID = 1 AND PROPERTYTYPE = 'FLAT';
+
+
+SELECT P.*
+FROM PROPERTY P
+JOIN LOCATION L 
+ON L.LOCATIONID=P.LOCATIONID
+WHERE L.CITY = 'PUNE'
+AND P.PRICE BETWEEN 5000000 AND 9000000
+AND PROPERTYTYPE = 'FLAT';
+
+SHOW INDEX FROM PROPERTY;
+
+Assignment 8: PS16 – Digital Music Catalogue and Listening Analytics
+
+CREATE DATABASE MUSICDB;
+USE MUSICDB;
+
+CREATE TABLE ARTIST (
+    ARTISTID INT PRIMARY KEY,
+    ARTISTNAME VARCHAR(50) NOT NULL,
+    COUNTRY VARCHAR(30)
+);
+
+CREATE TABLE ALBUM (
+    ALBUMID INT PRIMARY KEY,
+    ALBUMNAME VARCHAR(100) NOT NULL,
+    ARTISTID INT,
+    RELEASEDATE DATE,
+    FOREIGN KEY (ARTISTID) REFERENCES ARTIST(ARTISTID)
+);
+
+CREATE TABLE TRACK (
+    TRACKID INT PRIMARY KEY,
+    TRACKNAME VARCHAR(100) NOT NULL,
+    ALBUMID INT,
+    GENRE VARCHAR(30),
+    DURATION INT,
+    LYRICSTEXT TEXT,
+    FOREIGN KEY (ALBUMID) REFERENCES ALBUM(ALBUMID)
+);
+
+CREATE TABLE LISTENING_HISTORY (
+    HISTORYID INT PRIMARY KEY,
+    USERID INT,
+    TRACKID INT,
+    PLAYEDAT DATETIME,
+    FOREIGN KEY (TRACKID) REFERENCES TRACK(TRACKID)
+);
+
+INSERT INTO ARTIST VALUES
+(1, 'ARTIST A', 'INDIA'),
+(2, 'ARTIST B', 'USA');
+
+INSERT INTO ALBUM VALUES
+(1, 'FIRST ALBUM', 1, '2025-01-10'),
+(2, 'SECOND ALBUM', 2, '2025-02-15');
+
+INSERT INTO TRACK VALUES
+(1, 'SONG ONE', 1, 'POP', 210, 'HELLO MUSIC WORLD'),
+(2, 'SONG TWO', 1, 'ROCK', 240, 'ROCK MUSIC'),
+(3, 'SONG THREE', 2, 'POP', 180, 'GOOD MUSIC');
+
+INSERT INTO LISTENING_HISTORY VALUES
+(1, 101, 1, '2026-01-10 10:00:00'),
+(2, 101, 2, '2026-01-11 11:00:00'),
+(3, 102, 3, '2026-01-12 12:00:00');
+
+CREATE INDEX IDX_TRACK_GENRE ON TRACK(GENRE);
+
+CREATE INDEX IDX_ALBUM_ARTIST ON ALBUM(ARTISTID);
+
+CREATE INDEX IDX_HISTORY_USER_DATE
+ON LISTENING_HISTORY(USERID, PLAYEDAT);
+
+ALTER TABLE TRACK
+ADD FULLTEXT INDEX FT_LYRICS(LYRICSTEXT);
+
+EXPLAIN SELECT * FROM TRACK
+WHERE GENRE = 'POP';
+
+EXPLAIN SELECT * FROM ALBUM
+WHERE ARTISTID = 1;
+
+EXPLAIN SELECT * FROM LISTENING_HISTORY
+WHERE USERID = 101
+AND PLAYEDAT BETWEEN '2026-01-01' AND '2026-01-31';
+
+EXPLAIN SELECT * FROM TRACK
+WHERE MATCH(LYRICSTEXT)
+AGAINST('MUSIC');
+
+SELECT * FROM TRACK
+WHERE GENRE = 'POP';
+
+SELECT * FROM ALBUM
+WHERE ARTISTID = 1;
+
+SELECT * FROM LISTENING_HISTORY
+WHERE USERID = 101
+AND PLAYEDAT BETWEEN '2026-01-01' AND '2026-01-31';
+
+SELECT * FROM TRACK
+WHERE MATCH(LYRICSTEXT)
+AGAINST('MUSIC');
+
+SHOW INDEX FROM TRACK;
+
+SHOW INDEX FROM ALBUM;
+
+SHOW INDEX FROM LISTENING_HISTORY;
+
+
+Assignment 9: PS19 – IoT Smart Device and Sensor Monitoring
+
+CREATE DATABASE IOTDB;
+USE IOTDB;
+
+CREATE TABLE DEVICE (
+    DEVICEID INT PRIMARY KEY,
+    DEVICENAME VARCHAR(50) NOT NULL,
+    SERIALNO VARCHAR(40) UNIQUE NOT NULL
+);
+
+CREATE TABLE SENSOR (
+    SENSORID INT PRIMARY KEY,
+    DEVICEID INT,
+    SENSORTYPE VARCHAR(40) NOT NULL,
+    FOREIGN KEY(DEVICEID) REFERENCES DEVICE(DEVICEID)
+);
+
+CREATE TABLE SENSOR_READING (
+    READINGID INT PRIMARY KEY,
+    SENSORID INT,
+    READINGVALUE DECIMAL(10,2),
+    READINGTIME DATETIME NOT NULL,
+    FOREIGN KEY(SENSORID) REFERENCES SENSOR(SENSORID)
+);
+
+CREATE TABLE ALERT (
+    ALERTID INT PRIMARY KEY,
+    DEVICEID INT,
+    ALERTMESSAGE VARCHAR(100),
+    ALERTTIME DATETIME,
+    FOREIGN KEY(DEVICEID) REFERENCES DEVICE(DEVICEID)
+);
+
+CREATE INDEX IDX_SENSOR_DEVICE ON SENSOR(DEVICEID);
+CREATE INDEX IDX_READING_SENSOR ON SENSOR_READING(SENSORID);
+CREATE INDEX IDX_READING_TIME ON SENSOR_READING(READINGTIME);
+
+CREATE VIEW DEVICE_MONITOR_VIEW AS
+SELECT D.DEVICEID, D.DEVICENAME, S.SENSORID, S.SENSORTYPE,
+       R.READINGVALUE, R.READINGTIME, A.ALERTMESSAGE
+FROM DEVICE D
+JOIN SENSOR S ON D.DEVICEID = S.DEVICEID
+LEFT JOIN SENSOR_READING R ON S.SENSORID = R.SENSORID
+LEFT JOIN ALERT A ON D.DEVICEID = A.DEVICEID;
+
+INSERT INTO DEVICE VALUES(1,'TEMPERATURE UNIT','SN001');
+INSERT INTO SENSOR VALUES(1,1,'TEMPERATURE');
+
+START TRANSACTION;
+
+INSERT INTO SENSOR_READING VALUES(1,1,28.5,NOW());
+
+SAVEPOINT READING_SAVED;
+
+INSERT INTO ALERT VALUES(1,1,'HIGH TEMPERATURE',NOW());
+
+COMMIT;
+
+SELECT * FROM DEVICE_MONITOR_VIEW;
+
+-- CREATE USER AND GRANT PERMISSIONS
+
+CREATE USER IF NOT EXISTS 'IOT_USER'@'LOCALHOST'
+IDENTIFIED BY 'IOT@123';
+
+GRANT SELECT ON IOTDB.DEVICE TO 'IOT_USER'@'LOCALHOST';
+
+GRANT SELECT ON IOTDB.SENSOR TO 'IOT_USER'@'LOCALHOST';
+
+REVOKE SELECT ON IOTDB.SENSOR FROM 'IOT_USER'@'LOCALHOST';
+
+-- TCL ROLLBACK DEMONSTRATION
+
+START TRANSACTION;
+
+INSERT INTO SENSOR_READING VALUES(2,1,29.0,NOW());
+
+SAVEPOINT SP1;
+
+UPDATE ALERT
+SET ALERTMESSAGE = 'UPDATED ALERT'
+WHERE ALERTID = 1;
+
+ROLLBACK TO SP1;
+
+COMMIT;
+
+
+USE IOTDB;
+
+-- 1. CHECK DEVICE TABLE
+
+SELECT * FROM DEVICE;
+
+-- EXPECTED OUTPUT:
+-- DEVICEID | DEVICENAME       | SERIALNO
+-- 1        | TEMPERATURE UNIT | SN001
+
+-- REASON: DISPLAYS ALL REGISTERED DEVICES.
+
+
+-- 2. CHECK SENSOR TABLE
+
+SELECT * FROM SENSOR;
+
+-- EXPECTED OUTPUT:
+-- SENSORID | DEVICEID | SENSORTYPE
+-- 1        | 1        | TEMPERATURE
+
+-- REASON: DISPLAYS SENSORS CONNECTED TO DEVICES.
+
+
+-- 3. CHECK SENSOR READING
+
+SELECT * FROM SENSOR_READING;
+
+-- EXPECTED OUTPUT:
+-- READINGID | SENSORID | READINGVALUE
+-- 1         | 1        | 28.50
+
+-- REASON: DISPLAYS SENSOR READINGS STORED IN THE DATABASE.
+
+
+-- 4. CHECK ALERT TABLE
+
+SELECT * FROM ALERT;
+
+-- EXPECTED OUTPUT:
+-- ALERTID | DEVICEID | ALERTMESSAGE
+-- 1       | 1        | HIGH TEMPERATURE
+
+-- REASON: DISPLAYS ALERTS GENERATED FOR DEVICES.
+
+
+-- 5. CHECK DEVICE MONITORING VIEW
+
+SELECT * FROM DEVICE_MONITOR_VIEW;
+
+-- EXPECTED OUTPUT:
+-- DEVICEID | DEVICENAME       | SENSORID | SENSORTYPE
+-- 1        | TEMPERATURE UNIT | 1        | TEMPERATURE
+-- READINGVALUE = 28.50
+-- ALERTMESSAGE = HIGH TEMPERATURE
+
+-- REASON: VIEW COMBINES DEVICE, SENSOR, SENSOR_READING
+-- AND ALERT TABLES.
+
+
+-- 6. CHECK ALL INDEXES
+
+SHOW INDEX FROM SENSOR;
+
+SHOW INDEX FROM SENSOR_READING;
+
+-- EXPECTED OUTPUT:
+-- SENSOR: PRIMARY, IDX_SENSOR_DEVICE
+-- SENSOR_READING: PRIMARY, IDX_READING_SENSOR, IDX_READING_TIME
+
+-- REASON: DISPLAYS INDEXES CREATED TO IMPROVE SEARCHING.
+
+
+-- 7. TEST UNIQUE CONSTRAINT
+
+INSERT INTO DEVICE VALUES(2,'HUMIDITY UNIT','SN001');
+
+-- EXPECTED OUTPUT:
+-- ERROR 1062: DUPLICATE ENTRY 'SN001'.
+
+-- REASON: SERIALNO IS UNIQUE, SO DUPLICATE SERIAL NUMBERS
+-- ARE NOT ALLOWED.
+
+
+-- 8. TEST NOT NULL CONSTRAINT
+
+INSERT INTO DEVICE(DEVICEID, DEVICENAME, SERIALNO)
+VALUES(3,NULL,'SN003');
+
+-- EXPECTED OUTPUT:
+-- ERROR 1048: COLUMN 'DEVICENAME' CANNOT BE NULL.
+
+-- REASON: DEVICENAME IS DECLARED NOT NULL.
+
+
+-- 9. TEST FOREIGN KEY CONSTRAINT
+
+INSERT INTO SENSOR VALUES(2,999,'HUMIDITY');
+
+-- EXPECTED OUTPUT:
+-- ERROR 1452: CANNOT ADD OR UPDATE A CHILD ROW.
+
+-- REASON: DEVICEID 999 DOES NOT EXIST IN DEVICE TABLE.
+
+
+-- 10. TEST INVALID SENSOR REFERENCE
+
+INSERT INTO SENSOR_READING
+VALUES(3,999,30.0,NOW());
+
+-- EXPECTED OUTPUT:
+-- ERROR 1452: CANNOT ADD OR UPDATE A CHILD ROW.
+
+-- REASON: SENSORID 999 DOES NOT EXIST IN SENSOR TABLE.
+
+
+-- 11. TEST GRANT PERMISSION
+
+SHOW GRANTS FOR 'IOT_USER'@'LOCALHOST';
+
+-- EXPECTED OUTPUT:
+-- USER HAS SELECT PERMISSION ON IOTDB.DEVICE.
+-- SELECT PERMISSION ON IOTDB.SENSOR WAS REVOKED.
+
+-- REASON: SHOWS THE CURRENT PRIVILEGES OF IOT_USER.
+
+
+-- 12. TEST TCL SAVEPOINT AND ROLLBACK
+
+START TRANSACTION;
+
+INSERT INTO SENSOR_READING
+VALUES(2,1,29.0,NOW());
+
+-- EXPECTED OUTPUT:
+-- QUERY OK, 1 ROW AFFECTED.
+
+-- REASON: INSERTS A NEW SENSOR READING.
+
+
+SAVEPOINT SP1;
+
+UPDATE ALERT
+SET ALERTMESSAGE = 'UPDATED ALERT'
+WHERE ALERTID = 1;
+
+-- EXPECTED OUTPUT:
+-- QUERY OK, 1 ROW AFFECTED.
+
+-- REASON: TEMPORARILY UPDATES THE ALERT MESSAGE.
+
+
+ROLLBACK TO SP1;
+
+-- EXPECTED OUTPUT:
+-- QUERY OK.
+
+-- REASON: REVERSES CHANGES MADE AFTER SAVEPOINT SP1.
+-- THE UPDATE IS CANCELLED, BUT THE EARLIER INSERT REMAINS.
+
+
+COMMIT;
+
+-- EXPECTED OUTPUT:
+-- QUERY OK.
+
+-- REASON: PERMANENTLY SAVES THE REMAINING TRANSACTION CHANGES.
+
+
+-- 13. CHECK FINAL SENSOR READINGS
+
+SELECT * FROM SENSOR_READING;
+
+-- EXPECTED OUTPUT:
+-- READINGID 1 | SENSORID 1 | READINGVALUE 28.50
+-- READINGID 2 | SENSORID 1 | READINGVALUE 29.00
+
+-- REASON: BOTH READINGS ARE SAVED AFTER COMMIT.
+
+
+-- 14. CHECK FINAL ALERT
+
+SELECT * FROM ALERT;
+
+-- EXPECTED OUTPUT:
+-- ALERTID 1 | DEVICEID 1 | HIGH TEMPERATURE
+
+-- REASON: UPDATED ALERT WAS ROLLED BACK TO ITS ORIGINAL VALUE.
+
+
+-- 15. CHECK FINAL VIEW
+
+SELECT * FROM DEVICE_MONITOR_VIEW;
+
+-- EXPECTED OUTPUT:
+-- DEVICENAME = TEMPERATURE UNIT
+-- SENSORTYPE = TEMPERATURE
+-- READINGVALUE = 28.50 AND 29.00
+-- ALERTMESSAGE = HIGH TEMPERATURE
+
+-- REASON: DISPLAYS THE LATEST COMMITTED DATA
+-- FROM RELATED TABLES.
+
+Assignment 10: PS20 – Cybersecurity Threat Detection and Access Log Management
+
+CREATE DATABASE CyberDB;
+USE CyberDB;
+
+CREATE TABLE User_Account(
+  UserID INT PRIMARY KEY, UserName VARCHAR(50) NOT NULL,
+  Email VARCHAR(80) UNIQUE NOT NULL
+);
+CREATE TABLE System_Info(
+  SystemID INT PRIMARY KEY, SystemName VARCHAR(50) NOT NULL
+);
+CREATE TABLE Access_Log(
+  LogID INT PRIMARY KEY, UserID INT, SystemID INT,
+  LoginTime DATETIME NOT NULL, LoginStatus VARCHAR(20) NOT NULL,
+  FOREIGN KEY(UserID) REFERENCES User_Account(UserID),
+  FOREIGN KEY(SystemID) REFERENCES System_Info(SystemID),
+  CHECK(LoginStatus IN ('Success','Failed'))
+);
+CREATE TABLE Threat_Alert(
+  ThreatID INT PRIMARY KEY, LogID INT, ThreatStatus VARCHAR(20),
+  ThreatType VARCHAR(50), FOREIGN KEY(LogID) REFERENCES Access_Log(LogID)
+);
+CREATE TABLE ML_Prediction(
+  PredictionID INT PRIMARY KEY, LogID INT, Prediction VARCHAR(50),
+  Confidence DECIMAL(5,2), FOREIGN KEY(LogID) REFERENCES Access_Log(LogID)
+);
+
+CREATE INDEX idx_log_user ON Access_Log(UserID);
+CREATE INDEX idx_log_time ON Access_Log(LoginTime);
+CREATE INDEX idx_log_system ON Access_Log(SystemID);
+CREATE INDEX idx_threat_status ON Threat_Alert(ThreatStatus);
+
+CREATE VIEW Suspicious_Access AS
+SELECT LogID,SystemID,LoginTime,LoginStatus
+FROM Access_Log WHERE LoginStatus='Failed';
+
+INSERT INTO User_Account VALUES(1,'Asha','asha@example.com');
+INSERT INTO System_Info VALUES(1,'Main Server');
+INSERT INTO Access_Log VALUES
+(1,1,1,NOW(),'Failed'),(2,1,1,NOW(),'Success');
+INSERT INTO Threat_Alert VALUES(1,1,'Open','Repeated failed login');
+INSERT INTO ML_Prediction VALUES(1,1,'Suspicious',95.5);
+
+SELECT u.UserName,s.SystemName,l.LoginTime,l.LoginStatus,t.ThreatType
+FROM Access_Log l JOIN User_Account u ON l.UserID=u.UserID
+JOIN System_Info s ON l.SystemID=s.SystemID
+LEFT JOIN Threat_Alert t ON l.LogID=t.LogID;
+SELECT UserID FROM Access_Log WHERE LoginStatus='Failed'
+UNION
+SELECT l.UserID FROM Access_Log l JOIN Threat_Alert t ON l.LogID=t.LogID;
+SELECT UserID,COUNT(*) AS FailedAttempts
+FROM Access_Log WHERE LoginStatus='Failed' GROUP BY UserID;
+SELECT SystemID,COUNT(*) AS ThreatCount
+FROM Access_Log l JOIN Threat_Alert t ON l.LogID=t.LogID GROUP BY SystemID;
+SELECT UserID,COUNT(*) AS FailedCount,
+RANK() OVER(ORDER BY COUNT(*) DESC) AS UserRank
+FROM Access_Log WHERE LoginStatus='Failed' GROUP BY UserID;
+SELECT * FROM Suspicious_Access;
+
+
+USE CyberDB;
+
+-- 1. Check User Account Table
+SELECT * FROM User_Account;
+-- Expected Output:
+-- UserID | UserName | Email
+-- 1      | Asha     | asha@example.com
+-- Reason: Displays all registered users.
+
+-- 2. Check System Info Table
+SELECT * FROM System_Info;
+-- Expected Output:
+-- SystemID | SystemName
+-- 1        | Main Server
+-- Reason: Displays registered systems.
+
+-- 3. Check Access Log Table
+SELECT * FROM Access_Log;
+-- Expected Output:
+-- LogID | UserID | SystemID | LoginTime | LoginStatus
+-- 1     | 1      | 1        | [Current Time] | Failed
+-- 2     | 1      | 1        | [Current Time] | Success
+-- Reason: Displays login attempts made by users.
+
+-- 4. Check Threat Alert Table
+SELECT * FROM Threat_Alert;
+-- Expected Output:
+-- ThreatID | LogID | ThreatStatus | ThreatType
+-- 1        | 1     | Open         | Repeated failed login
+-- Reason: Displays detected security threats.
+
+-- 5. Check ML Prediction Table
+SELECT * FROM ML_Prediction;
+-- Expected Output:
+-- PredictionID | LogID | Prediction | Confidence
+-- 1            | 1     | Suspicious | 95.50
+-- Reason: Displays machine learning predictions.
+
+-- 6. Test JOIN Query
+SELECT u.UserName,s.SystemName,l.LoginTime,l.LoginStatus,t.ThreatType
+FROM Access_Log l
+JOIN User_Account u ON l.UserID=u.UserID
+JOIN System_Info s ON l.SystemID=s.SystemID
+LEFT JOIN Threat_Alert t ON l.LogID=t.LogID;
+-- Expected Output:
+-- Asha | Main Server | [Current Time] | Failed  | Repeated failed login
+-- Asha | Main Server | [Current Time] | Success | NULL
+-- Reason: Combines user, system, login and threat details.
+
+-- 7. Test UNION Query
+SELECT UserID FROM Access_Log WHERE LoginStatus='Failed'
+UNION
+SELECT l.UserID FROM Access_Log l
+JOIN Threat_Alert t ON l.LogID=t.LogID;
+-- Expected Output:
+-- UserID
+-- 1
+-- Reason: UNION combines results and removes duplicate UserIDs.
+
+-- 8. Count Failed Login Attempts
+SELECT UserID,COUNT(*) AS FailedAttempts
+FROM Access_Log
+WHERE LoginStatus='Failed'
+GROUP BY UserID;
+-- Expected Output:
+-- UserID | FailedAttempts
+-- 1      | 1
+-- Reason: Counts failed login attempts for each user.
+
+-- 9. Count Threats for Each System
+SELECT SystemID,COUNT(*) AS ThreatCount
+FROM Access_Log l
+JOIN Threat_Alert t ON l.LogID=t.LogID
+GROUP BY SystemID;
+-- Expected Output:
+-- SystemID | ThreatCount
+-- 1        | 1
+-- Reason: Counts threats detected in each system.
+
+-- 10. Test RANK Function
+SELECT UserID,COUNT(*) AS FailedCount,
+RANK() OVER(ORDER BY COUNT(*) DESC) AS UserRank
+FROM Access_Log
+WHERE LoginStatus='Failed'
+GROUP BY UserID;
+-- Expected Output:
+-- UserID | FailedCount | UserRank
+-- 1      | 1           | 1
+-- Reason: RANK assigns a position based on failed login counts.
+
+-- 11. Check Suspicious Access View
+SELECT * FROM Suspicious_Access;
+-- Expected Output:
+-- LogID | SystemID | LoginTime | LoginStatus
+-- 1     | 1        | [Current Time] | Failed
+-- Reason: View displays only failed login attempts.
+
+-- 12. Test UNIQUE Constraint
+INSERT INTO User_Account
+VALUES(2,'Rahul','asha@example.com');
+-- Expected Output:
+-- ERROR 1062: Duplicate entry 'asha@example.com'.
+-- Reason: Email is UNIQUE, so duplicate emails are not allowed.
+
+-- 13. Test NOT NULL Constraint
+INSERT INTO User_Account
+VALUES(2,NULL,'rahul@example.com');
+-- Expected Output:
+-- ERROR 1048: Column 'UserName' cannot be null.
+-- Reason: UserName is declared NOT NULL.
+
+-- 14. Test CHECK Constraint
+INSERT INTO Access_Log
+VALUES(3,1,1,NOW(),'Blocked');
+-- Expected Output:
+-- ERROR 3819: Check constraint is violated.
+-- Reason: LoginStatus only allows Success or Failed.
+
+-- 15. Test FOREIGN KEY Constraint
+INSERT INTO Access_Log
+VALUES(4,999,1,NOW(),'Failed');
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: UserID 999 does not exist in User_Account.
+
+-- 16. Test Invalid System Reference
+INSERT INTO Access_Log
+VALUES(5,1,999,NOW(),'Failed');
+-- Expected Output:
+-- ERROR 1452: Cannot add or update a child row.
+-- Reason: SystemID 999 does not exist in System_Info.
+
+-- 17. Test Indexes
+SHOW INDEX FROM Access_Log;
+SHOW INDEX FROM Threat_Alert;
+-- Expected Output:
+-- Access_Log: PRIMARY, idx_log_user, idx_log_time, idx_log_system
+-- Threat_Alert: PRIMARY, idx_threat_status
+-- Reason: Displays indexes created to improve searching.
+
+-- 18. Check Final Suspicious Access
+SELECT * FROM Suspicious_Access;
+-- Expected Output:
+-- LogID 1 | SystemID 1 | Failed
+-- Reason: Only failed login records are displayed.
+
+
+
+Assignment 11: PS21 – Urban Air Quality Monitoring
+use CleanAirDB
+db.Stations.insertMany([
+ {stationId:1,name:"Central Station",city:"Pune"},
+ {stationId:2,name:"Industrial Station",city:"Pune"}
+])
+db.AirReadings.insertMany([
+ {stationId:1,recordedDate:ISODate("2026-01-01"),pm25:35,pm10:60,temperature:28,status:"Moderate"},
+ {stationId:2,recordedDate:ISODate("2026-01-01"),pm25:70,pm10:110,temperature:32,status:"Poor"}
+])
+db.Stations.find()
+db.AirReadings.find({stationId:1})
+db.AirReadings.updateOne({stationId:1},{$set:{status:"Good"}})
+db.AirReadings.deleteOne({stationId:2})
+db.AirReadings.createIndex({stationId:1})
+db.AirReadings.aggregate([{$group:{_id:"$stationId",averagePM25:{$avg:"$pm25"}}}])
+
+
+Assignment 12: PS26 – Restaurant Reservation and Dining Management
+use DiningDB
+db.Restaurants.insertMany([{restaurantId:1,name:"Food Court",city:"Pune"},{restaurantId:2,name:"Cafe One",city:"Pune"}])
+db.Reservations.insertMany([
+ {reservationId:1,restaurantId:1,customerName:"Asha",bookingDate:ISODate("2026-01-01"),bookingTime:"19:00",guests:4},
+ {reservationId:2,restaurantId:1,customerName:"Riya",bookingDate:ISODate("2026-01-02"),bookingTime:"20:00",guests:2},
+ {reservationId:3,restaurantId:2,customerName:"Amit",bookingDate:ISODate("2026-01-02"),bookingTime:"18:00",guests:3}
+])
+db.Restaurants.find()
+db.Reservations.find({restaurantId:1})
+db.Reservations.updateOne({reservationId:1},{$set:{guests:5}})
+db.Reservations.deleteOne({reservationId:3})
+db.Reservations.createIndex({restaurantId:1})
+db.Reservations.aggregate([{$group:{_id:"$restaurantId",totalReservations:{$sum:1},totalGuests:{$sum:"$guests"}}}])
+
+
+Assignment 13: PS27 – Public Bicycle Sharing System
+use BikeShareDB
+db.BikeStations.insertMany([{stationId:1,name:"Station A",bikes:10},{stationId:2,name:"Station B",bikes:8}])
+db.Trips.insertMany([
+ {tripId:1,userId:101,startingStation:1,endingStation:2,duration:15},
+ {tripId:2,userId:102,startingStation:1,endingStation:2,duration:20},
+ {tripId:3,userId:103,startingStation:2,endingStation:1,duration:12}
+])
+db.BikeStations.find()
+db.Trips.find({startingStation:1})
+db.Trips.updateOne({tripId:1},{$set:{duration:18}})
+db.Trips.deleteOne({tripId:3})
+db.Trips.createIndex({startingStation:1})
+db.Trips.aggregate([{$group:{_id:"$startingStation",totalTrips:{$sum:1}}}])
+
+
+Assignment 14: PS28 – Animal Shelter and Adoption Management
+use AnimalShelterDB
+db.Animals.insertMany([{animalId:1,name:"Bruno",type:"Dog"},{animalId:2,name:"Milo",type:"Cat"}])
+db.Vaccinations.insertMany([
+ {vaccinationId:1,animalId:1,vaccine:"Rabies",date:ISODate("2026-01-01")},
+ {vaccinationId:2,animalId:1,vaccine:"DHPP",date:ISODate("2026-01-10")},
+ {vaccinationId:3,animalId:2,vaccine:"Rabies",date:ISODate("2026-01-11")}
+])
+db.Applications.insertMany([
+ {applicationId:1,animalId:1,applicant:"Asha",status:"Pending"},
+ {applicationId:2,animalId:2,applicant:"Ravi",status:"Approved"}
+])
+db.Animals.find()
+db.Vaccinations.find({animalId:1})
+db.Applications.find({animalId:1})
+db.Animals.updateOne({animalId:1},{$set:{type:"Dog - vaccinated"}})
+db.Applications.deleteOne({applicationId:1})
+db.Animals.createIndex({animalId:1})
+db.Animals.aggregate([
+ {$lookup:{from:"Vaccinations",localField:"animalId",foreignField:"animalId",as:"vaccines"}},
+ {$lookup:{from:"Applications",localField:"animalId",foreignField:"animalId",as:"applications"}},
+ {$project:{name:1,vaccinationCount:{$size:"$vaccines"},applicationCount:{$size:"$applications"}}}
+])
+
+
+Assignment 15: PS29 – Community Knowledge Portal
+use KnowledgePortalDB
+db.Questions.insertMany([
+ {questionId:1,question:"What is SQL?",userName:"Asha",date:ISODate("2026-01-01")},
+ {questionId:2,question:"What is MongoDB?",userName:"Ravi",date:ISODate("2026-01-02")}
+])
+db.Answers.insertMany([
+ {questionId:1,userName:"Riya",answerText:"Structured Query Language",date:ISODate("2026-01-03"),rating:5},
+ {questionId:1,userName:"Amit",answerText:"Used for databases",date:ISODate("2026-01-04"),rating:4},
+ {questionId:2,userName:"Asha",answerText:"A document database",date:ISODate("2026-01-05"),rating:5}
+])
+db.Questions.find()
+db.Answers.find({questionId:1})
+db.Answers.updateOne({questionId:1,userName:"Riya"},{$set:{rating:4}})
+db.Answers.deleteOne({questionId:2})
+db.Answers.createIndex({questionId:1})
+db.Answers.aggregate([{$group:{_id:"$questionId",answerCount:{$sum:1},averageRating:{$avg:"$rating"}}}])
